@@ -9,7 +9,7 @@ Pour compiler mictcp et générer les exécutables des applications de test depu
 
     make
 
-Deux applicatoins de test sont fournies, tsock_texte et tsock_video, elles peuvent être lancées soit en mode puits, soit en mode source selon la syntaxe suivante:
+Deux applications de test sont fournies, tsock_texte et tsock_video, elles peuvent être lancées soit en mode puits, soit en mode source selon la syntaxe suivante:
 
     Usage: ./tsock_texte [-p|-s]
     Usage: ./tsock_video [[-p|-s] [-t (tcp|mictcp)]

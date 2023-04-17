@@ -3,6 +3,7 @@
 
 // Mode debug ou pas pour afficher les informations des fonctions appelles ou pas 
 #define DEBUG_MODE 0
+
 // Loss rate value
 #define LOSS_RATE_VALUE 0
 
@@ -16,8 +17,14 @@
  */
 #define HANDSHAKE 0
 
+// Temps d'attente en millisecondes
+#define TIMEOUT 5
+
 // Notre tableau de socket
-mic_tcp_sock ourSocketTab[NB_MAX_SOCKET];
+mySocket ourSocketTab[NB_MAX_SOCKET];
+
+// indice du socket sur lequel on travaille
+int id_sock = 0;
 
 /*
  * Permet de créer un socket entre l’application et MIC-TCP
@@ -67,8 +74,8 @@ int mic_tcp_bind(int socket, mic_tcp_sock_addr addr)
         return -1;
     }
 
-    ourSocketTab[socket].state = IDLE;
-    ourSocketTab[socket].addr = addr;
+    ourSocketTab[socket].socket.state = IDLE;
+    ourSocketTab[socket].socket.addr = addr;
     return 0;
 }
 
@@ -86,7 +93,7 @@ int mic_tcp_accept(int socket, mic_tcp_sock_addr *addr)
     }
 
     if( !HANDSHAKE ) {
-        ourSocketTab[socket].state = ESTABLISHED;
+        ourSocketTab[socket].socket.state = ESTABLISHED;
         return 0;
     }
 
@@ -106,10 +113,12 @@ int mic_tcp_connect(int socket, mic_tcp_sock_addr addr)
         printf(__FUNCTION__);
         printf("\n");
     }
+    ourSocketTab[socket].num_seq_local = 0;
+    ourSocketTab[socket].num_seq_distant = 0;
+    ourSocketTab[socket].addr_distante = addr; // addresse destinataire
     
     if(!HANDSHAKE){
-        ourSocketTab[socket].state = ESTABLISHED;
-        ourSocketTab[socket].addr = addr;
+        ourSocketTab[socket].socket.state = ESTABLISHED;
         return 0;
     }
     
@@ -129,29 +138,50 @@ int mic_tcp_send(int mic_sock, char *mesg, int mesg_size)
         printf("\n");
     }
 
-    if(ourSocketTab[mic_sock].state != ESTABLISHED){
+    if(ourSocketTab[mic_sock].socket.state != ESTABLISHED){
         printf("Impossible d'envoyer des donnees applicative\n");
         return -1;
     }
 
-    mic_tcp_pdu pdu_to_send;
-    mic_tcp_sock_addr addr_to_sent = ourSocketTab[mic_sock].addr;
-    pdu_to_send.header.dest_port = addr_to_sent.port;
+    mic_tcp_pdu pdu_to_send, pdu_to_rcv;
+    initialise_to_null_pdu(&pdu_to_send);
+    mic_tcp_sock_addr addr_to_sent = ourSocketTab[mic_sock].addr_distante;
+    pdu_to_send.header.source_port = ourSocketTab[mic_sock].socket.addr.port;
+    pdu_to_send.header.dest_port = ourSocketTab[mic_sock].addr_distante.port;
+    pdu_to_send.header.seq_num = ourSocketTab[mic_sock].num_seq_local;
     pdu_to_send.payload.data = mesg;
     pdu_to_send.payload.size = mesg_size;
 
-    int nb_octets_sent = -1;
-    
-    nb_octets_sent = IP_send(pdu_to_send,addr_to_sent);
+    // On envoie les donnees
+    int size_octets_sent;
+    int size_pdu_rcv;
+    ourSocketTab[mic_sock].num_seq_local = (ourSocketTab[mic_sock].num_seq_local+1) % 2;
 
+    // Tant qu'on a pas recu le pdu qui dit que la donnee a bien ete recu, on tourne cette boucle
+    while (1)
+    {
+        size_octets_sent = IP_send(pdu_to_send,addr_to_sent);
+        if( size_octets_sent == -1) {
+            printf("[ERROR] Echec de l'envoie des donnees\n");
+            return -1;
+        }
+
+        initialise_to_null_pdu(&pdu_to_rcv);
+        size_pdu_rcv = IP_recv(&pdu_to_rcv,&(ourSocketTab[mic_sock].addr_distante),TIMEOUT);
+        
+        if(size_pdu_rcv != -1){
+            break;
+        }
+    }
+    
     if(DEBUG_MODE){
-        if(nb_octets_sent != -1)
-            printf("Vous venez d'envoyer %d octets de donnees\n",nb_octets_sent);
+        if(size_octets_sent != -1)
+            printf("Vous venez d'envoyer %d octets de donnees\n",size_octets_sent);
         else
-            printf("Erreur lors de l'envoi des donnees applicatives\n");
+            printf("Erreur lors de l'envoi des donnees\n");
     }
 
-    return nb_octets_sent;
+    return size_octets_sent;
 }
 
 /*
@@ -168,18 +198,26 @@ int mic_tcp_recv(int socket, char *mesg, int max_mesg_size)
         printf("\n");
     }
 
-    if(ourSocketTab[socket].state != ESTABLISHED){
+    if(ourSocketTab[socket].socket.state != ESTABLISHED){
         printf("Impossible de recevoir les donnees, vous devez etre connecte a une autre machine pour cela\n");
         return -1;
     }
 
     int delivered_size = -1;
 
-    mic_tcp_payload payload;
-    payload.data = mesg;
-    payload.size = max_mesg_size;
+    mic_tcp_payload *payload = malloc(sizeof(mic_tcp_payload));
 
-    delivered_size = app_buffer_get(payload);
+    payload->data = mesg;
+    payload->size = max_mesg_size;
+
+    delivered_size = app_buffer_get(*payload);
+
+    if(DEBUG_MODE){
+        if(delivered_size != -1)
+            printf("Vous venez de recuperer %d octets de donnees dans le buffer\n",delivered_size);
+        else
+            printf("Erreur lors de la recuperation des donnees\n");
+    }
 
     return delivered_size;
 }
@@ -198,7 +236,8 @@ int mic_tcp_close(int socket)
         printf("\n");
     }
     
-    ourSocketTab[socket].state = CLOSED;
+    ourSocketTab[socket].socket.state = CLOSED;
+    ourSocketTab[socket].socket.fd = -1;
     return 0;
 }
 
@@ -216,5 +255,69 @@ void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr)
         printf("\n");
     }
 
-    app_buffer_put(pdu.payload);
+    switch (ourSocketTab[id_sock].socket.state)
+    {
+    case ESTABLISHED:
+        // On recois un pdu de donnees
+        if(ourSocketTab[id_sock].num_seq_distant == pdu.header.seq_num){
+            // On cree l'acquitement du pdu en question et on l'envoie
+            mic_tcp_pdu pdu_ack;
+            initialise_to_null_pdu(&pdu_ack);
+            pdu_ack.header.ack = 1;
+            pdu_ack.header.source_port = ourSocketTab[id_sock].socket.addr.port;
+            pdu_ack.header.dest_port = addr.port;
+            pdu_ack.header.ack_num = ourSocketTab[id_sock].num_seq_distant;
+            ourSocketTab[id_sock].num_seq_distant = (ourSocketTab[id_sock].num_seq_distant + 1) % 2;
+
+            if(DEBUG_MODE){
+                print_mic_tcp_pdu_infos(pdu_ack,"PDU ACK CREATED:");
+            }
+
+            int sent_size;
+            if((sent_size = IP_send(pdu_ack,addr) == -1)){
+                printf("[ERROR] Echec d'envoie du PDU ACK\n");
+                return;
+            }
+
+            // On traite le pdu une fois l'ack envoye
+            app_buffer_put(pdu.payload);
+            if(DEBUG_MODE){
+                printf("PDU placé dans le buffer\n");
+            }
+        }
+        break;
+    default:
+        break;
+    }
+    
+}
+
+/*
+ * Fonction initialisant toutes les composantes d'un PDU
+ * à zéro. 
+ */
+void initialise_to_null_pdu(mic_tcp_pdu *pdu)
+{
+    pdu->header.source_port = 0;
+    pdu->header.dest_port = 0;
+    pdu->header.seq_num = 0;
+    pdu->header.ack_num = 0;
+    pdu->header.syn = 0;
+    pdu->header.ack = 0;
+    pdu->header.fin = 0;
+    pdu->payload.data = NULL;
+    pdu->payload.size = 0;
+}
+
+void print_mic_tcp_pdu_infos(mic_tcp_pdu pdu, char* text) {
+	printf("++++++++++++++++++++++++++++++++++++++++\n%s\n", text);
+	printf("ACK flag: %d\n", pdu.header.ack);
+	printf("FIN flag: %d\n", pdu.header.fin);
+	printf("SYN flag: %d\n", pdu.header.syn);
+	printf("Port source: %hu\n", pdu.header.source_port);
+	printf("Port destination: %hu\n", pdu.header.dest_port);
+	printf("Numero de seq: %u\n", pdu.header.seq_num);
+	printf("Numero d'ack: %u\n", pdu.header.ack_num);
+	printf("Taille du payload: %d\n", pdu.payload.size);
+    printf("++++++++++++++++++++++++++++++++++++++++\n");
 }

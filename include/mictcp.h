@@ -21,7 +21,7 @@
  */
 typedef enum protocol_state
 {
-    IDLE, CLOSED, SYN_SENT, SYN_RECEIVED, ESTABLISHED, CLOSING
+    IDLE, CLOSED, SYN_SENT, SYN_RECEIVED, ACK_SENT, ACK_RECEIVED, ESTABLISHED, CLOSING
 } protocol_state;
 
 /*
@@ -49,6 +49,14 @@ typedef struct mic_tcp_sock
   protocol_state state; /* état du protocole */
   mic_tcp_sock_addr addr; /* adresse du socket */
 } mic_tcp_sock;
+
+typedef struct
+{
+	mic_tcp_sock socket;
+	mic_tcp_sock_addr addr_distante;
+	char num_seq_local;	
+	char num_seq_distant;
+} mySocket;
 
 /*
  * Structure des données utiles d’un PDU MIC-TCP
@@ -101,5 +109,7 @@ int mic_tcp_send (int socket, char* mesg, int mesg_size);
 int mic_tcp_recv (int socket, char* mesg, int max_mesg_size);
 void process_received_PDU(mic_tcp_pdu pdu, mic_tcp_sock_addr addr);
 int mic_tcp_close(int socket);
+void initialise_to_null_pdu(mic_tcp_pdu *pdu);
+void print_mic_tcp_pdu_infos(mic_tcp_pdu pdu, char* text);
 
 #endif
