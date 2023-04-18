@@ -2,10 +2,13 @@
 #include <api/mictcp_core.h>
 
 // Mode debug ou pas pour afficher les informations des fonctions appelles ou pas 
-#define DEBUG_MODE 0
+#define DEBUG_MODE 1
 
 // Loss rate value
 #define LOSS_RATE_VALUE 0
+
+// Taux des paquets perdus et abandonnes. Si ADMITTED_LOSS_RATE = 10, 10% des paquets perdus ne seront pas renvoyes.
+#define ADMITTED_LOSS_RATE 0
 
 // Nombre de socket maximal que notre programme peut supporter
 #define NB_MAX_SOCKET 10
@@ -25,6 +28,13 @@ mySocket ourSocketTab[NB_MAX_SOCKET];
 
 // indice du socket sur lequel on travaille
 int id_sock = 0;
+
+int nb_rcv_paquets = 0;      /* Nombre de paquets reçus */
+int nb_loss_paquets = 0;      /* Nombre de paquets perdus */
+int nb_send_paquets = 0;      /* Nombre de paquets envoyés */
+int nb_loss_resend = 0;      /* Nombre des pertes renvoyées */
+int nb_loss_left = 0;      /* Nombre des pertes abandonnees */
+
 
 /*
  * Permet de créer un socket entre l’application et MIC-TCP
@@ -169,14 +179,31 @@ int mic_tcp_send(int mic_sock, char *mesg, int mesg_size)
         initialise_to_null_pdu(&pdu_to_rcv);
         size_pdu_rcv = IP_recv(&pdu_to_rcv,&(ourSocketTab[mic_sock].addr_distante),TIMEOUT);
         
-        if(size_pdu_rcv != -1){
+        print_mic_tcp_pdu_infos(pdu_to_rcv,"PDU RCV\n");
+
+        // Si on est dans ce cas alors on a recu le bon ack 
+        if((pdu_to_rcv.header.ack == 1)
+            && (size_pdu_rcv != -1)
+        ){
+            nb_send_paquets++;
             break;
+        }
+
+        // Si on est toujours pas hors de la boucle alors notre paquet s'est perdu
+        nb_loss_paquets++;
+        
+        if(accept_loss()){
+            nb_loss_left++;
+        }else{
+            nb_loss_resend++;
         }
     }
     
     if(DEBUG_MODE){
-        if(size_octets_sent != -1)
+        if(size_octets_sent != -1){
             printf("Vous venez d'envoyer %d octets de donnees\n",size_octets_sent);
+            printf("[INFO] Nombre de paquets envoyes : %d\n",nb_send_paquets);
+        }
         else
             printf("Erreur lors de l'envoi des donnees\n");
     }
@@ -184,6 +211,10 @@ int mic_tcp_send(int mic_sock, char *mesg, int mesg_size)
     return size_octets_sent;
 }
 
+
+int accept_loss(){
+    return 0;
+}
 /*
  * Permet à l’application réceptrice de réclamer la récupération d’une donnée
  * stockée dans les buffers de réception du socket
@@ -212,10 +243,17 @@ int mic_tcp_recv(int socket, char *mesg, int max_mesg_size)
 
     delivered_size = app_buffer_get(*payload);
 
+    if( delivered_size == -1){
+        return -1;
+    } else{
+        nb_rcv_paquets++;
+    }
+
     if(DEBUG_MODE){
-        if(delivered_size != -1)
+        if(delivered_size != -1){
             printf("Vous venez de recuperer %d octets de donnees dans le buffer\n",delivered_size);
-        else
+            printf("[INFO] Nombre de paquets recu : %d\n",nb_rcv_paquets);
+        } else
             printf("Erreur lors de la recuperation des donnees\n");
     }
 
