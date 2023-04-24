@@ -244,7 +244,7 @@ int mic_tcp_send(int mic_sock, char *mesg, int mesg_size)
  */
 int accept_loss(){
     int sum = 0;
-    for(int i= 0; i < WINDOW_SIZE; i++){
+    for(int i= 0; i< WINDOW_SIZE; i++){
         sum+= tabLastPaquet[i];
     }
     int percentageLoss = sum/WINDOW_SIZE;
