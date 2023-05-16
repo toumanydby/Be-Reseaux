@@ -22,7 +22,7 @@ Deux applications de test sont fournies, tsock_texte et tsock_video, elles peuve
 
 Seul tsock_video permet d'utiliser, au choix, votre protocole mictcp ou une émulation du comportement de tcp sur un réseau avec pertes.
 
-## ETAT D'AVANCEMENT ET INFOS
+## Etat d'avancement et infos
 
 Les différentes versions implementées sont disponibles via les tags du depot. 
 
@@ -30,7 +30,7 @@ Je n'ai pas pu avancer **plus loin que la V3 de MICTCP** par manque de temps, d'
 
 Les premières versions sont toutes fonctionnelles et pour la V3 vous pouvez jouer sur le taux de pertes admissibles en modifiant la valeur de la variable globale **LOSS_RATE_VALUE**.
 
-## Choix d'implémentation FIABILITE PARTIELLE STATIQUE
+## Choix d'implémentation Fiabilité partielle statique
 
 La garantie de fiabilité partielle « statique » via un mécanisme de reprise des pertes de type « Stop and Wait » a été implémenté suivant l'idée de fenetre glissante de taille N fixée par le developpeur histoire de connaitre l'état des differents paquets transmis jusque là. On calcule alors apres chaque perte de paquet le taux de perte réellement obtenu des paquets de la fenetre glissante par rapport à celui fixé de base. Ce qui nous determine si une prochaine  perte est acceptable ou non. Les paquets de la fenetre glissante sont alors mis à jour pour compter les N derniersd paquets envoyés.     
 
